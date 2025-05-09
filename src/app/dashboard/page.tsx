@@ -112,6 +112,7 @@ export default function DashboardPage() {
           trend="steady" 
           trendValue="0%"
         />
+        
       </div>
 
       <div className="bg-white p-6 rounded-lg shadow mb-8">

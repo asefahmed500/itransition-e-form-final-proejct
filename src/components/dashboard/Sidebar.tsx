@@ -2,6 +2,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import {  FaSalesforce } from "react-icons/fa6";
+import { SiOdoo } from "react-icons/si";
 import {
   LayoutDashboard,
   FileText,
@@ -54,6 +56,25 @@ export default function Sidebar() {
       href: "/dashboard/settings",
       icon: <Settings className="h-5 w-5" />,
     },
+    {
+      name: "Salesforce",
+      href: "/dashboard/salesforce",
+      icon: <FaSalesforce className="h-5 w-5" />,
+    },
+    {
+      name: "Oddo",
+      href: "/dashboard/oddo",
+      icon: <SiOdoo className="h-5 w-5" />,
+    },
+    {
+      name: "Logout",
+      href: "/api/auth/signout",
+      icon: <Settings className="h-5 w-5" />,
+      onClick: () => {
+        // Handle logout logic here if needed
+        setIsOpen(false);
+      },
+    }
   ];
 
   return (

@@ -1,43 +1,20 @@
-import NextAuth, { AuthOptions, DefaultSession } from "next-auth";
+// app/api/auth/[...nextauth]/route.ts
+import NextAuth, { AuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import User from "@/lib/models/User";
 import dbConnect from "@/lib/utils/dbConnect";
 
-declare module "next-auth" {
-  interface User {
-    id: string;
-    role: "user" | "admin" | "super-admin";
-    isBlocked: boolean;
-  }
-  interface Session extends DefaultSession {
-    user: {
-      id: string;
-      role: "user" | "admin" | "super-admin";
-      isBlocked: boolean;
-    } & DefaultSession["user"];
-  }
-}
-
-declare module "next-auth/jwt" {
-  interface JWT {
-    id: string;
-    role: "user" | "admin" | "super-admin";
-    isBlocked: boolean;
-  }
-}
-
 export const authOptions: AuthOptions = {
   providers: [
     GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID as string,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       async profile(profile) {
         try {
           await dbConnect();
-
-          // Only allow specific emails to be admins
-          const adminEmails = ["asefahmed500@gmail.com"]; // Add other admin emails here
+          
+          const adminEmails = ["asefahmed500@gmail.com"];
           const isAdmin = adminEmails.includes(profile.email);
           
           const userData = {
@@ -50,37 +27,33 @@ export const authOptions: AuthOptions = {
             lastLogin: new Date(),
           };
 
-          // Find existing user or create new one
-          let user = await User.findOne({ email: profile.email });
-          
-          if (!user) {
-            user = await User.create(userData);
-          } else {
-            // Update existing user
-            user = await User.findOneAndUpdate(
-              { email: profile.email },
-              { 
-                $set: { 
-                  lastLogin: new Date(),
-                  ...(user.authProvider === "google" ? {} : userData) // Only update provider-specific fields if already using Google
-                } 
-              },
-              { new: true }
-            );
-          }
+          const updateResult = await User.findOneAndUpdate(
+            { email: profile.email },
+            {
+              $setOnInsert: userData,
+              $set: { lastLogin: new Date() }
+            },
+            { upsert: true, new: true }
+          );
 
-          if (!user) throw new Error("User creation/update failed");
-          if (user.isBlocked) throw new Error("AccountBlocked");
+          if (!updateResult) throw new Error("User update failed");
+          if (updateResult.isBlocked) throw new Error("AccountBlocked");
 
           return {
-            id: user._id.toString(),
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            isBlocked: user.isBlocked,
+            id: updateResult._id.toString(),
+            name: updateResult.name,
+            email: updateResult.email,
+            role: updateResult.role,
+            isBlocked: updateResult.isBlocked,
+            ...(updateResult.salesforceAccessToken && {
+              salesforceAccessToken: updateResult.salesforceAccessToken,
+              salesforceRefreshToken: updateResult.salesforceRefreshToken,
+              salesforceInstanceUrl: updateResult.salesforceInstanceUrl,
+              crmData: updateResult.crmData
+            })
           };
         } catch (error) {
-          console.error("Google authentication error:", error);
+          console.error("Google auth error:", error);
           throw error;
         }
       },
@@ -97,7 +70,7 @@ export const authOptions: AuthOptions = {
           await dbConnect();
           
           if (!credentials?.email || !credentials?.password) {
-            throw new Error("Email and password are required");
+            throw new Error("Credentials required");
           }
 
           const user = await User.findOne({
@@ -105,16 +78,15 @@ export const authOptions: AuthOptions = {
             authProvider: "credentials",
           }).select("+password");
 
-          if (!user) throw new Error("Invalid credentials");
+          if (!user || !(await user.comparePassword(credentials.password))) {
+            throw new Error("Invalid credentials");
+          }
           if (user.isBlocked) throw new Error("AccountBlocked");
 
-          const isValid = await user.comparePassword(credentials.password);
-          if (!isValid) throw new Error("Invalid credentials");
-
-          // Update last login without causing conflicts
-          await User.findByIdAndUpdate(user._id, { 
-            $set: { lastLogin: new Date() } 
-          });
+          await User.updateOne(
+            { _id: user._id },
+            { $set: { lastLogin: new Date() } }
+          );
 
           return {
             id: user._id.toString(),
@@ -122,21 +94,41 @@ export const authOptions: AuthOptions = {
             email: user.email,
             role: user.role,
             isBlocked: user.isBlocked,
+            ...(user.salesforceAccessToken && {
+              salesforceAccessToken: user.salesforceAccessToken,
+              salesforceRefreshToken: user.salesforceRefreshToken,
+              salesforceInstanceUrl: user.salesforceInstanceUrl,
+              crmData: user.crmData
+            })
           };
         } catch (error) {
-          console.error("Credentials authentication error:", error);
-          throw error;
+          console.error("Credentials auth error:", error);
+          return null;
         }
       },
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
         token.role = user.role;
         token.isBlocked = user.isBlocked;
+        if ("salesforceAccessToken" in user) {
+          token.salesforceAccessToken = user.salesforceAccessToken;
+          token.salesforceRefreshToken = user.salesforceRefreshToken;
+          token.salesforceInstanceUrl = user.salesforceInstanceUrl;
+          token.crmData = user.crmData;
+        }
       }
+
+      if (trigger === "update" && session?.user) {
+        token.salesforceAccessToken = session.user.salesforceAccessToken;
+        token.salesforceRefreshToken = session.user.salesforceRefreshToken;
+        token.salesforceInstanceUrl = session.user.salesforceInstanceUrl;
+        token.crmData = session.user.crmData;
+      }
+
       return token;
     },
     async session({ session, token }) {
@@ -144,6 +136,12 @@ export const authOptions: AuthOptions = {
         session.user.id = token.id;
         session.user.role = token.role;
         session.user.isBlocked = token.isBlocked;
+        if (token.salesforceAccessToken) {
+          session.user.salesforceAccessToken = token.salesforceAccessToken;
+          session.user.salesforceRefreshToken = token.salesforceRefreshToken;
+          session.user.salesforceInstanceUrl = token.salesforceInstanceUrl;
+          session.user.crmData = token.crmData;
+        }
       }
       return session;
     },
@@ -154,10 +152,11 @@ export const authOptions: AuthOptions = {
   },
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    maxAge: 24 * 60 * 60, // Reduced from 30 days to 1 day for better security
   },
   secret: process.env.NEXTAUTH_SECRET,
-  debug: process.env.NODE_ENV === "development",
+  debug: false, // Disabled debug in production
+  useSecureCookies: process.env.NODE_ENV === "production",
 };
 
 const handler = NextAuth(authOptions);
