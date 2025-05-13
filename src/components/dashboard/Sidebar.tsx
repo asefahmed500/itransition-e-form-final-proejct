@@ -14,6 +14,7 @@ import {
   Settings,
   Menu,
   X,
+  Ticket,
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -65,6 +66,11 @@ export default function Sidebar() {
       name: "Oddo",
       href: "/dashboard/oddo",
       icon: <SiOdoo className="h-5 w-5" />,
+    },
+    {
+      name: "SupportTicket",
+      href: "/dashboard/SupportTicket",
+      icon: <Ticket className="h-5 w-5" />,
     },
     {
       name: "Logout",

@@ -1,0 +1,19 @@
+https://login.microsoftonline.com/common/oauth2/v2.0/authorize?
+client_id=fb912532-59d7-438c-ae78-a6c59818fe01&
+response_type=code&
+redirect_uri=http://localhost:3000/api/onedrive/auth&
+scope=offline_access%20Files.ReadWrite%20User.Read&
+state=12345
+
+
+http://localhost:3000/api/onedrive/tokens  
+
+ONEDRIVE_ACCESS_TOKEN 
+
+
+Graph TypeScript quick start
+
+Client ID 
+
+21cfe89f-bb3d-4d0c-86b2-2f34bd267507
+
